@@ -25,8 +25,6 @@ struct TestView: View {
 
             VStack(alignment: .leading, spacing: 20) {
 
-                // MARK: Server Info
-
                 Text("Server Information")
                     .font(.headline)
 
@@ -80,13 +78,9 @@ struct TestView: View {
 
                 Divider()
 
-                // MARK: Speed Label
-
                 Text(formatSpeed(iperf.currentSpeed))
                     .font(.system(size: 42, weight: .bold))
                     .frame(maxWidth: .infinity)
-
-                // MARK: Chart
 
                 Chart(speedPoints) { point in
 
@@ -127,9 +121,9 @@ struct TestView: View {
                 .chartYAxis {
                     AxisMarks(position: .leading)
                 }
-                .animation(.linear(duration: 0.2), value: iperf.history)
-
-                // MARK: Stats
+                .transaction { t in
+                    t.animation = nil   // ⭐ УБИВАЕМ МИГАНИЕ
+                }
 
                 HStack {
                     stat("Min", iperf.history.min() ?? 0)
@@ -139,8 +133,6 @@ struct TestView: View {
 
                 Text(iperf.stateText)
                     .foregroundColor(.gray)
-
-                // MARK: Button
 
                 Button {
 
@@ -169,8 +161,6 @@ struct TestView: View {
         .navigationTitle(server.name ?? server.address)
     }
 
-    // MARK: Chart Data
-
     var speedPoints: [SpeedPoint] {
         iperf.history.enumerated().map {
             SpeedPoint(
@@ -179,8 +169,6 @@ struct TestView: View {
             )
         }
     }
-
-    // MARK: Helpers
 
     func formatTime(_ sec: Double) -> String {
         let total = Int(sec)
