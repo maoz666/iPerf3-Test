@@ -1,19 +1,12 @@
-//
-//  AddServerView.swift
-//  iPerf3
-//
-//  Created by Artem Peshkov on 18/03/2026.
-//
-
-
 import SwiftUI
 
 struct AddServerView: View {
     @Environment(\.dismiss) var dismiss
 
     @State private var name: String = ""
-    @State private var ipOctets: [String] = ["", "", "", ""]
+    @State private var address: String = ""
     @State private var port: String = "5201"
+
     @State private var mode: Int = 0
     @State private var streams: Int = 1
     @State private var duration: Int = 0
@@ -24,41 +17,67 @@ struct AddServerView: View {
         NavigationStack {
             Form {
                 Section(header: Text("Server Information")) {
-                    TextField("Server name (optional)", text: $name)
-                    HStack {
-                        ForEach(0..<4, id: \.self) { i in
-                            TextField("0", text: $ipOctets[i])
-                                .keyboardType(.numberPad)
-                                .frame(width: 50)
-                                .multilineTextAlignment(.center)
-                                .onChange(of: ipOctets[i]) { oldValue, newValue in
-                                    ipOctets[i] = validateOctet(newValue)
-                                }
-                            if i < 3 { Text(".") }
-                        }
+
+                    VStack(alignment: .leading) {
+                        Text("Server Name")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+
+                        TextField("Optional", text: $name)
                     }
-                    TextField("Port", text: $port)
-                        .keyboardType(.numberPad)
+
+                    VStack(alignment: .leading) {
+                        Text("Server Address")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+
+                        IPAddressField(address: $address)
+                    }
+
+                    VStack(alignment: .leading) {
+                        Text("Port")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+
+                        TextField("5201", text: $port)
+                            .keyboardType(.decimalPad)
+                    }
                 }
 
                 Section(header: Text("Test Settings")) {
-                    Picker("Transmit Mode", selection: $mode) {
-                        Text("Download").tag(0)
-                        Text("Upload").tag(1)
-                    }
-                    .pickerStyle(.segmented)
 
-                    Picker("Streams", selection: $streams) {
-                        ForEach(1...5, id: \.self) { Text("\($0)") }
-                    }
-                    .pickerStyle(.segmented)
+                    VStack(alignment: .leading) {
+                        Text("Transmit Mode")
+                            .foregroundColor(.gray)
 
-                    Picker("Duration", selection: $duration) {
-                        Text("10s").tag(0)
-                        Text("30s").tag(1)
-                        Text("5min").tag(2)
+                        Picker("", selection: $mode) {
+                            Text("Download").tag(0)
+                            Text("Upload").tag(1)
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
+
+                    VStack(alignment: .leading) {
+                        Text("Streams")
+                            .foregroundColor(.gray)
+
+                        Picker("", selection: $streams) {
+                            ForEach(1...5, id: \.self) { Text("\($0)") }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    VStack(alignment: .leading) {
+                        Text("Duration")
+                            .foregroundColor(.gray)
+
+                        Picker("", selection: $duration) {
+                            Text("10s").tag(0)
+                            Text("30s").tag(1)
+                            Text("5min").tag(2)
+                        }
+                        .pickerStyle(.segmented)
+                    }
                 }
             }
             .navigationTitle("Add Server")
@@ -66,8 +85,8 @@ struct AddServerView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
                         let server = IperfServer(
-                            name: name.isEmpty ? ipOctets.joined(separator: ".") : name,
-                            address: ipOctets.joined(separator: "."),
+                            name: name.isEmpty ? address : name,
+                            address: address,
                             port: Int(port) ?? 5201,
                             mode: mode,
                             streams: streams,
@@ -77,6 +96,7 @@ struct AddServerView: View {
                         dismiss()
                     }
                 }
+
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
@@ -84,9 +104,19 @@ struct AddServerView: View {
         }
     }
 
-    func validateOctet(_ input: String) -> String {
-        let digits = input.filter { "0123456789".contains($0) }
-        if let val = Int(digits), val > 255 { return "255" }
-        return digits
+    // MARK: - IP formatter
+
+    func formatIP(_ input: String) -> String {
+        let numbers = input.filter { "0123456789".contains($0) }
+        var result = ""
+
+        for (index, char) in numbers.enumerated() {
+            if index != 0 && index % 3 == 0 && result.filter({ $0 == "." }).count < 3 {
+                result.append(".")
+            }
+            result.append(char)
+        }
+
+        return result
     }
 }
