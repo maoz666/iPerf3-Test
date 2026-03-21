@@ -11,6 +11,7 @@ import Combine
 
 class IperfService: ObservableObject {
 
+    @Published var startDate: Date?
     @Published var currentSpeed: Double = 0
     @Published var history: [Double] = []
     @Published var isRunning = false
@@ -21,6 +22,7 @@ class IperfService: ObservableObject {
     func start(server: IperfServer) {
         history.removeAll()
         isRunning = true
+        startDate = Date()
 
         var config = IperfConfiguration()
         config.address = server.address

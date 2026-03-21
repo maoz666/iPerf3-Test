@@ -1,6 +1,14 @@
 import SwiftUI
+import Charts
+
+struct SpeedPoint: Identifiable {
+    let id = UUID()
+    let time: Double
+    let value: Double
+}
 
 struct TestView: View {
+
     @State var server: IperfServer
     @StateObject private var iperf = IperfService()
 
@@ -12,40 +20,36 @@ struct TestView: View {
     }
 
     var body: some View {
+
         ScrollView {
+
             VStack(alignment: .leading, spacing: 20) {
 
-                // MARK: - Server Info (READ ONLY)
+                // MARK: Server Info
 
                 Text("Server Information")
                     .font(.headline)
 
                 VStack(alignment: .leading) {
-                    Text("Server Name")
-                        .foregroundColor(.gray)
+                    Text("Server Name").foregroundColor(.gray)
                     Text(server.name ?? "-")
                 }
 
                 VStack(alignment: .leading) {
-                    Text("Server Address")
-                        .foregroundColor(.gray)
+                    Text("Server Address").foregroundColor(.gray)
                     Text(server.address)
                 }
 
                 VStack(alignment: .leading) {
-                    Text("Port")
-                        .foregroundColor(.gray)
+                    Text("Port").foregroundColor(.gray)
 
                     TextField("", text: $port)
                         .keyboardType(.decimalPad)
                         .textFieldStyle(.roundedBorder)
                 }
 
-                // MARK: - Settings
-
                 VStack(alignment: .leading) {
-                    Text("Transmit Mode")
-                        .foregroundColor(.gray)
+                    Text("Transmit Mode").foregroundColor(.gray)
 
                     Picker("", selection: $server.mode) {
                         Text("Download").tag(0)
@@ -55,8 +59,7 @@ struct TestView: View {
                 }
 
                 VStack(alignment: .leading) {
-                    Text("Streams")
-                        .foregroundColor(.gray)
+                    Text("Streams").foregroundColor(.gray)
 
                     Picker("", selection: $server.streams) {
                         ForEach(1...5, id: \.self) { Text("\($0)") }
@@ -65,8 +68,7 @@ struct TestView: View {
                 }
 
                 VStack(alignment: .leading) {
-                    Text("Duration")
-                        .foregroundColor(.gray)
+                    Text("Duration").foregroundColor(.gray)
 
                     Picker("", selection: $server.duration) {
                         Text("10s").tag(0)
@@ -78,37 +80,56 @@ struct TestView: View {
 
                 Divider()
 
-                // MARK: - Speed
+                // MARK: Speed Label
 
                 Text(formatSpeed(iperf.currentSpeed))
                     .font(.system(size: 42, weight: .bold))
                     .frame(maxWidth: .infinity)
 
-                // MARK: - Graph
+                // MARK: Chart
 
-                GeometryReader { geo in
-                    Path { path in
-                        let data = iperf.history
-                        guard data.count > 1 else { return }
+                Chart(speedPoints) { point in
 
-                        let step = geo.size.width / CGFloat(data.count - 1)
+                    LineMark(
+                        x: .value("Time", point.time),
+                        y: .value("Speed", point.value)
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .lineStyle(.init(lineWidth: 3))
+                    .foregroundStyle(.blue)
 
-                        for i in data.indices {
-                            let x = CGFloat(i) * step
-                            let y = geo.size.height * (1 - CGFloat(data[i] / (data.max() ?? 1)))
+                    AreaMark(
+                        x: .value("Time", point.time),
+                        y: .value("Speed", point.value)
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.blue.opacity(0.35), .blue.opacity(0.05)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                }
+                .frame(height: 220)
+                .chartXAxis {
 
-                            if i == 0 {
-                                path.move(to: CGPoint(x: x, y: y))
-                            } else {
-                                path.addLine(to: CGPoint(x: x, y: y))
-                            }
+                    AxisMarks(values: .stride(by: 5)) { value in
+
+                        AxisGridLine()
+                        AxisTick()
+
+                        if let sec = value.as(Double.self) {
+                            AxisValueLabel(formatTime(sec))
                         }
                     }
-                    .stroke(.blue, lineWidth: 2)
                 }
-                .frame(height: 160)
+                .chartYAxis {
+                    AxisMarks(position: .leading)
+                }
+                .animation(.linear(duration: 0.2), value: iperf.history)
 
-                // MARK: - Stats
+                // MARK: Stats
 
                 HStack {
                     stat("Min", iperf.history.min() ?? 0)
@@ -116,21 +137,23 @@ struct TestView: View {
                     stat("Max", iperf.history.max() ?? 0)
                 }
 
-                // MARK: - Status
-
                 Text(iperf.stateText)
                     .foregroundColor(.gray)
 
-                // MARK: - Button
+                // MARK: Button
 
-                Button(action: {
+                Button {
+
                     syncServer()
+
                     if iperf.isRunning {
                         iperf.stop()
                     } else {
                         iperf.start(server: server)
                     }
-                }) {
+
+                } label: {
+
                     Text(iperf.isRunning ? "Stop" : "Start Test")
                         .font(.title2)
                         .bold()
@@ -139,10 +162,31 @@ struct TestView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(iperf.isRunning ? .red : .blue)
                 .padding(.vertical, 20)
+
             }
             .padding()
         }
         .navigationTitle(server.name ?? server.address)
+    }
+
+    // MARK: Chart Data
+
+    var speedPoints: [SpeedPoint] {
+        iperf.history.enumerated().map {
+            SpeedPoint(
+                time: Double($0.offset),
+                value: $0.element
+            )
+        }
+    }
+
+    // MARK: Helpers
+
+    func formatTime(_ sec: Double) -> String {
+        let total = Int(sec)
+        let m = total / 60
+        let s = total % 60
+        return String(format: "%02d:%02d", m, s)
     }
 
     func syncServer() {
