@@ -1,3 +1,11 @@
+//
+//  SpeedPoint.swift
+//  iPerf3
+//
+//  Created by Artem Peshkov on 01/04/2026.
+//
+
+
 import SwiftUI
 import Charts
 
@@ -14,6 +22,9 @@ struct TestView: View {
 
     @State private var port: String = "5201"
 
+    @State private var visibleEnd: Double = 20
+    private let window: Double = 20
+
     init(server: IperfServer) {
         _server = State(initialValue: server)
         _port = State(initialValue: "\(server.port)")
@@ -23,143 +34,143 @@ struct TestView: View {
 
         ScrollView {
 
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(spacing: 20) {
 
-                Text("Server Information")
-                    .font(.headline)
-
-                VStack(alignment: .leading) {
-                    Text("Server Name").foregroundColor(.gray)
-                    Text(server.name ?? "-")
-                }
-
-                VStack(alignment: .leading) {
-                    Text("Server Address").foregroundColor(.gray)
-                    Text(server.address)
-                }
-
-                VStack(alignment: .leading) {
-                    Text("Port").foregroundColor(.gray)
-
-                    TextField("", text: $port)
-                        .keyboardType(.decimalPad)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                VStack(alignment: .leading) {
-                    Text("Transmit Mode").foregroundColor(.gray)
-
-                    Picker("", selection: $server.mode) {
-                        Text("Download").tag(0)
-                        Text("Upload").tag(1)
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                VStack(alignment: .leading) {
-                    Text("Streams").foregroundColor(.gray)
-
-                    Picker("", selection: $server.streams) {
-                        ForEach(1...5, id: \.self) { Text("\($0)") }
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                VStack(alignment: .leading) {
-                    Text("Duration").foregroundColor(.gray)
-
-                    Picker("", selection: $server.duration) {
-                        Text("10s").tag(0)
-                        Text("30s").tag(1)
-                        Text("5min").tag(2)
-                    }
-                    .pickerStyle(.segmented)
-                }
+                serverSection
 
                 Divider()
 
-                Text(formatSpeed(iperf.currentSpeed))
-                    .font(.system(size: 42, weight: .bold))
-                    .frame(maxWidth: .infinity)
+                speedLabel
 
-                Chart(speedPoints) { point in
+                chartSection
 
-                    LineMark(
-                        x: .value("Time", point.time),
-                        y: .value("Speed", point.value)
-                    )
-                    .interpolationMethod(.catmullRom)
-                    .lineStyle(.init(lineWidth: 3))
-                    .foregroundStyle(.blue)
+                statsSection
 
-                    AreaMark(
-                        x: .value("Time", point.time),
-                        y: .value("Speed", point.value)
-                    )
-                    .interpolationMethod(.catmullRom)
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.blue.opacity(0.35), .blue.opacity(0.05)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                }
-                .frame(height: 220)
-                .chartXAxis {
-
-                    AxisMarks(values: .stride(by: 5)) { value in
-
-                        AxisGridLine()
-                        AxisTick()
-
-                        if let sec = value.as(Double.self) {
-                            AxisValueLabel(formatTime(sec))
-                        }
-                    }
-                }
-                .chartYAxis {
-                    AxisMarks(position: .leading)
-                }
-                .transaction { t in
-                    t.animation = nil   // ⭐ УБИВАЕМ МИГАНИЕ
-                }
-
-                HStack {
-                    stat("Min", iperf.history.min() ?? 0)
-                    stat("Avg", avg())
-                    stat("Max", iperf.history.max() ?? 0)
-                }
-
-                Text(iperf.stateText)
-                    .foregroundColor(.gray)
-
-                Button {
-
-                    syncServer()
-
-                    if iperf.isRunning {
-                        iperf.stop()
-                    } else {
-                        iperf.start(server: server)
-                    }
-
-                } label: {
-
-                    Text(iperf.isRunning ? "Stop" : "Start Test")
-                        .font(.title2)
-                        .bold()
-                        .frame(maxWidth: .infinity, minHeight: 60)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(iperf.isRunning ? .red : .blue)
-                .padding(.vertical, 20)
-
+                startButton
             }
             .padding()
         }
         .navigationTitle(server.name ?? server.address)
+        .onChange(of: iperf.history.count) { _ in
+            updateVisibleDomain()
+        }
     }
+}
+
+// MARK: - Sections
+
+private extension TestView {
+
+    var serverSection: some View {
+
+        VStack(alignment: .leading, spacing: 12) {
+
+            Text("Server Information")
+                .font(.headline)
+
+            VStack(alignment: .leading) {
+                Text("Port").foregroundColor(.gray)
+                TextField("", text: $port)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            Picker("Mode", selection: $server.mode) {
+                Text("Download").tag(0)
+                Text("Upload").tag(1)
+            }
+            .pickerStyle(.segmented)
+
+            Picker("Streams", selection: $server.streams) {
+                ForEach(1...5, id: \.self) { Text("\($0)") }
+            }
+            .pickerStyle(.segmented)
+
+            Picker("Duration", selection: $server.duration) {
+                Text("10s").tag(0)
+                Text("30s").tag(1)
+                Text("5min").tag(2)
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    var speedLabel: some View {
+        Text(formatSpeed(iperf.currentSpeed))
+            .font(.system(size: 42, weight: .bold))
+            .frame(maxWidth: .infinity)
+    }
+
+    var chartSection: some View {
+
+        let start = max(0.0, visibleEnd - window)
+        let range: ClosedRange<Double> = start...visibleEnd
+
+        return Chart(speedPoints) { point in
+
+            LineMark(
+                x: .value("Time", point.time),
+                y: .value("Speed", point.value)
+            )
+            .interpolationMethod(.catmullRom)
+            .lineStyle(.init(lineWidth: 3))
+            .foregroundStyle(.blue)
+
+            AreaMark(
+                x: .value("Time", point.time),
+                y: .value("Speed", point.value)
+            )
+            .interpolationMethod(.catmullRom)
+            .foregroundStyle(.blue.opacity(0.15))
+        }
+        .chartXScale(domain: range)
+        .frame(height: 220)
+
+        // ❌ УБРАЛИ ОСЬ X
+        .chartXAxis(.hidden)
+
+        .chartYAxis {
+            AxisMarks(position: .leading)
+        }
+        .transaction { $0.animation = nil }
+    }
+
+    var statsSection: some View {
+        HStack {
+            stat("Min", iperf.history.min() ?? 0)
+            stat("Avg", avg())
+            stat("Max", iperf.history.max() ?? 0)
+        }
+    }
+
+    var startButton: some View {
+
+        Button {
+
+            server.port = Int(port) ?? 5201
+
+            if iperf.isRunning {
+                iperf.stop()
+                visibleEnd = window
+            } else {
+                visibleEnd = window
+                iperf.start(server: server)
+            }
+
+        } label: {
+
+            Text(iperf.isRunning ? "Stop" : "Start Test")
+                .font(.title2)
+                .bold()
+                .frame(maxWidth: .infinity, minHeight: 60)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(iperf.isRunning ? .red : .blue)
+    }
+}
+
+// MARK: - Logic
+
+private extension TestView {
 
     var speedPoints: [SpeedPoint] {
         iperf.history.enumerated().map {
@@ -170,15 +181,17 @@ struct TestView: View {
         }
     }
 
-    func formatTime(_ sec: Double) -> String {
-        let total = Int(sec)
-        let m = total / 60
-        let s = total % 60
-        return String(format: "%02d:%02d", m, s)
+    func updateVisibleDomain() {
+        let newEnd = Double(iperf.history.count)
+
+        withAnimation(.linear(duration: 1)) {
+            visibleEnd = newEnd
+        }
     }
 
-    func syncServer() {
-        server.port = Int(port) ?? 5201
+    func avg() -> Double {
+        let h = iperf.history
+        return h.isEmpty ? 0 : h.reduce(0,+)/Double(h.count)
     }
 
     func stat(_ t: String, _ v: Double) -> some View {
@@ -187,11 +200,6 @@ struct TestView: View {
             Text(formatSpeed(v))
         }
         .frame(maxWidth: .infinity)
-    }
-
-    func avg() -> Double {
-        let h = iperf.history
-        return h.isEmpty ? 0 : h.reduce(0,+)/Double(h.count)
     }
 
     func formatSpeed(_ v: Double) -> String {
