@@ -1,11 +1,3 @@
-//
-//  SpeedPoint.swift
-//  iPerf3
-//
-//  Created by Artem Peshkov on 01/04/2026.
-//
-
-
 import SwiftUI
 import Charts
 
@@ -22,8 +14,14 @@ struct TestView: View {
 
     @State private var port: String = "5201"
 
-    @State private var visibleEnd: Double = 20
-    private let window: Double = 20
+    // ring buffer
+    @State private var displayData: [Double] = []
+
+    // smoothing
+    @State private var smoothedValue: Double = 0
+
+    private let window: Int = 20
+    private let maxY: Double = 1500
 
     init(server: IperfServer) {
         _server = State(initialValue: server)
@@ -51,8 +49,8 @@ struct TestView: View {
             .padding()
         }
         .navigationTitle(server.name ?? server.address)
-        .onChange(of: iperf.history.count) { _ in
-            updateVisibleDomain()
+        .onChange(of: iperf.history.count) { _, _ in
+            appendNewPoint()
         }
     }
 }
@@ -95,17 +93,14 @@ private extension TestView {
     }
 
     var speedLabel: some View {
-        Text(formatSpeed(iperf.currentSpeed))
+        Text(formatSpeed(smoothedValue))
             .font(.system(size: 42, weight: .bold))
             .frame(maxWidth: .infinity)
     }
 
     var chartSection: some View {
 
-        let start = max(0.0, visibleEnd - window)
-        let range: ClosedRange<Double> = start...visibleEnd
-
-        return Chart(speedPoints) { point in
+        Chart(speedPoints) { point in
 
             LineMark(
                 x: .value("Time", point.time),
@@ -120,25 +115,38 @@ private extension TestView {
                 y: .value("Speed", point.value)
             )
             .interpolationMethod(.catmullRom)
-            .foregroundStyle(.blue.opacity(0.15))
+            .foregroundStyle(.blue.opacity(0.12))
         }
-        .chartXScale(domain: range)
-        .frame(height: 220)
+        .chartXScale(domain: 0...Double(window))
 
-        // ❌ УБРАЛИ ОСЬ X
+        // ✅ фиксированная Y
+        .chartYScale(domain: 0...maxY)
+
+        .frame(height: 220)
         .chartXAxis(.hidden)
 
+        // тонкая сетка
         .chartYAxis {
-            AxisMarks(position: .leading)
+            AxisMarks(
+                position: .leading,
+                values: Array(stride(from: 0, through: maxY, by: 300))
+            ) { value in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                    .foregroundStyle(.gray.opacity(0.2))
+
+                AxisTick()
+                AxisValueLabel()
+            }
         }
+
         .transaction { $0.animation = nil }
     }
 
     var statsSection: some View {
         HStack {
-            stat("Min", iperf.history.min() ?? 0)
+            stat("Min", displayData.min() ?? 0)
             stat("Avg", avg())
-            stat("Max", iperf.history.max() ?? 0)
+            stat("Max", displayData.max() ?? 0)
         }
     }
 
@@ -150,9 +158,11 @@ private extension TestView {
 
             if iperf.isRunning {
                 iperf.stop()
-                visibleEnd = window
+                displayData.removeAll()
+                smoothedValue = 0
             } else {
-                visibleEnd = window
+                displayData.removeAll()
+                smoothedValue = 0
                 iperf.start(server: server)
             }
 
@@ -172,8 +182,33 @@ private extension TestView {
 
 private extension TestView {
 
+    func appendNewPoint() {
+
+        guard let raw = iperf.history.last else { return }
+
+        // ⭐ adaptive smoothing
+        let diff = abs(raw - smoothedValue)
+
+        let alpha: Double
+        if diff > 200 {
+            alpha = 0.5   // быстрый отклик (пики)
+        } else if diff > 50 {
+            alpha = 0.3
+        } else {
+            alpha = 0.15  // плавность
+        }
+
+        smoothedValue = smoothedValue * (1 - alpha) + raw * alpha
+
+        displayData.append(smoothedValue)
+
+        if displayData.count > window {
+            displayData.removeFirst()
+        }
+    }
+
     var speedPoints: [SpeedPoint] {
-        iperf.history.enumerated().map {
+        displayData.enumerated().map {
             SpeedPoint(
                 time: Double($0.offset),
                 value: $0.element
@@ -181,16 +216,8 @@ private extension TestView {
         }
     }
 
-    func updateVisibleDomain() {
-        let newEnd = Double(iperf.history.count)
-
-        withAnimation(.linear(duration: 1)) {
-            visibleEnd = newEnd
-        }
-    }
-
     func avg() -> Double {
-        let h = iperf.history
+        let h = displayData
         return h.isEmpty ? 0 : h.reduce(0,+)/Double(h.count)
     }
 
@@ -203,8 +230,8 @@ private extension TestView {
     }
 
     func formatSpeed(_ v: Double) -> String {
-        if v > 1000 { return String(format: "%.2f Gbps", v/1000) }
-        else if v > 1 { return String(format: "%.2f Mbps", v) }
-        else { return String(format: "%.2f Kbps", v*1000) }
+        if v > 1000 { return String(format: "%.1f Gbps", v/1000) }
+        else if v > 1 { return String(format: "%.1f Mbps", v) }
+        else { return String(format: "%.1f Kbps", v*1000) }
     }
 }
